@@ -22,7 +22,8 @@
     <div class="wrap">© Hisobchi-bro · YaTT va kichik biznes uchun buxgalterlar platformasi</div>
   </footer>
   <div id="toast"></div>
-  <script src="config.js"></script>
+  <!-- config.js har safar yangidan yuklanadi: tunnel manzili o'zgarganda brauzer keshi xalaqit bermasin -->
+  <script>document.write('<script src="config.js?v=' + Date.now() + '"><\/script>');</script>
   <script src="app.js"></script>
 </body>
 </html>
