@@ -1,0 +1,32 @@
+services:
+  api:
+    build: ./backend
+    env_file: .env
+    environment:
+      - PORT=3000
+      - UPLOAD_DIR=/data/uploads
+    volumes:
+      - uploads:/data/uploads
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./frontend:/usr/share/nginx/html:ro
+    restart: unless-stopped
+
+  # Cloudflare tunnel: localhost ni internetga chiqaradi (bepul *.trycloudflare.com)
+  tunnel:
+    image: cloudflare/cloudflared:2024.12.2
+    depends_on:
+      - nginx
+    command: tunnel --no-autoupdate --url http://nginx:80
+    restart: unless-stopped
+
+volumes:
+  uploads:
