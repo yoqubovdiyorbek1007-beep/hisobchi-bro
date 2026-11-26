@@ -289,7 +289,7 @@ routes['royxat'] = (qs) => authForm('reg', qs);
 
 routes['kabinet'] = async (qs) => {
   if (!ME) return go('#/kirish');
-  const head = `<div class="row"><h1>Salom, ${esc(ME.user.name)}!</h1><button class="btn ghost sm" id="out">Chiqish</button></div>`;
+  const head = `<div class="row"><h1>Salom, ${esc(ME.user.name)}!</h1><button class="btn ghost sm" id="out">Chiqish</button></div>${tgBlock()}`;
   if (ME.user.role === 'admin') { $app.innerHTML = head + '<a class="btn" href="#/admin">Admin panel</a>'; }
   else if (ME.user.role === 'client') {
     const list = await api('/api/me/orders');
@@ -299,6 +299,39 @@ routes['kabinet'] = async (qs) => {
         <h3 style="margin-top:8px">${esc(o.title)}</h3><div class="muted small">${o.offers_count} ta taklif</div></a>`).join('') || '<div class="empty">Hali zakaz bermagansiz</div>'}</div>`;
   } else await accountantCabinet(head, qs);
   document.getElementById('out').onclick = async () => { try { await api('/api/auth/logout', { method: 'POST', body: {} }); } catch {} setToken(''); ME = null; go('#/'); };
+};
+
+// ---------- Telegram bot bilan ulash ----------
+const TG_HINT = {
+  accountant: 'yangi zakazlar, mijoz sizni tanlagani va sharhlar haqida darhol xabar oling',
+  client: 'buxgalterlar zakazingizga taklif yuborganda darhol xabar oling',
+  admin: 'yangi to\'lov cheklari botga keladi, tarifni bir tugma bilan tasdiqlaysiz',
+};
+function tgBlock() {
+  if (!META.bot) return '';
+  const bot = `<a href="https://t.me/${esc(META.bot)}" target="_blank" rel="noopener">@${esc(META.bot)}</a>`;
+  return ME.user.telegram
+    ? `<div class="notice ok tg-block"><span>✓ Telegram ulangan: xabarlar ${bot} ga keladi.</span><button class="btn ghost sm" onclick="tgUnlink()">Uzish</button></div>`
+    : `<div class="notice tg-block"><span><b>Telegramni ulang</b> — ${TG_HINT[ME.user.role]}.</span><button class="btn sm" onclick="tgLink()">Telegramni ulash</button></div>`;
+}
+window.tgLink = async () => {
+  // Oynani darhol ochamiz (brauzer popup'ni bloklamasligi uchun), manzilni keyin beramiz
+  const w = window.open('', '_blank');
+  try {
+    const r = await api('/api/me/telegram', { method: 'POST', body: {} });
+    if (w) w.location.href = r.url; else location.href = r.url;
+  } catch (e) { if (w) w.close(); return toast(e.message); }
+  toast('Botda «Start» tugmasini bosing');
+  // Ulanishni kutamiz (3 daqiqagacha)
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    await loadMe();
+    if (ME?.user.telegram) { toast('Telegram ulandi ✓'); return render(); }
+  }
+};
+window.tgUnlink = async () => {
+  if (!confirm('Telegram xabarnomalarini o\'chirasizmi?')) return;
+  try { await api('/api/me/telegram', { method: 'DELETE' }); await loadMe(); toast('Telegram uzildi'); render(); } catch (e) { toast(e.message); }
 };
 
 async function accountantCabinet(head, qs) {
@@ -482,6 +515,10 @@ window.addEventListener('hashchange', render);
 (async () => {
   try { META = await api('/api/meta'); }
   catch { $app.innerHTML = '<div class="empty">⚠️ Server bilan aloqa yo\'q. Birozdan so\'ng qayta urinib ko\'ring.</div>'; return; }
+  if (META.bot) {
+    document.querySelector('.foot .wrap').insertAdjacentHTML('beforeend',
+      ` · <a href="https://t.me/${esc(META.bot)}" target="_blank" rel="noopener">Telegram bot @${esc(META.bot)}</a>`);
+  }
   await loadMe();
   render();
 })();

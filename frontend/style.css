@@ -104,3 +104,5 @@ th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--li
 .rate input { display: none; }
 .rate label { display: inline; font-size: 28px; cursor: pointer; color: var(--line); margin: 0; }
 .rate label.on { color: var(--gold); }
+.tg-block { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.foot a { color: inherit; text-decoration: underline; }

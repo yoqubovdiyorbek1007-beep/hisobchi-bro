@@ -7,8 +7,13 @@ import path from 'node:path';
 import { all, one, run } from './d1.js';
 import {
   PLANS, CATEGORIES, REGIMES, CITIES, BUSINESS_TYPES,
-  DAY, TRIAL_DAYS, PLAN_DAYS, now, effectivePlan, planInfo,
+  DAY, TRIAL_DAYS, now, effectivePlan, planInfo,
 } from './plans.js';
+import { reviewPayment } from './payments.js';
+import {
+  startBot, fire, botUsername, VIP_HEAD_START_MIN,
+  onNewOrder, onNewOffer, onAccepted, onDone, onReview, onPayment, onPaymentReviewed,
+} from './bot.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const UPLOAD_DIR = process.env.UPLOAD_DIR || '/data/uploads';
@@ -80,6 +85,7 @@ app.get('/api/meta', (_req, res) => {
   res.json({
     categories: CATEGORIES, regimes: REGIMES, cities: CITIES, businessTypes: BUSINESS_TYPES,
     plans: PLANS, trialDays: TRIAL_DAYS, card: { number: CARD_NUMBER, owner: CARD_OWNER },
+    bot: botUsername, vipHeadStart: VIP_HEAD_START_MIN,
   });
 });
 
@@ -121,7 +127,8 @@ app.post('/api/auth/logout', need(), wrap(async (req, res) => {
 }));
 
 app.get('/api/me', need(), wrap(async (req, res) => {
-  const out = { user: req.user };
+  const tg = await one('SELECT tg_chat_id FROM users WHERE id = ?', [req.user.id]);
+  const out = { user: { ...req.user, telegram: !!tg?.tg_chat_id } };
   if (req.user.role === 'accountant') {
     const acc = await getAcc(req.user.id);
     out.accountant = acc;
@@ -129,6 +136,20 @@ app.get('/api/me', need(), wrap(async (req, res) => {
     out.listingsUsed = (await one('SELECT COUNT(*) AS n FROM listings WHERE accountant_id = ? AND active = 1', [req.user.id])).n;
   }
   res.json(out);
+}));
+
+// ---------- Telegram bot bilan ulash ----------
+app.post('/api/me/telegram', need(), wrap(async (req, res) => {
+  if (!botUsername) fail(503, 'Telegram bot hozircha ishlamayapti');
+  const code = crypto.randomBytes(12).toString('hex');
+  await run('DELETE FROM tg_links WHERE user_id = ? OR expires_at < ?', [req.user.id, now()]);
+  await run('INSERT INTO tg_links (code, user_id, expires_at) VALUES (?, ?, ?)', [code, req.user.id, now() + 15 * 60]);
+  res.json({ url: `https://t.me/${botUsername}?start=${code}` });
+}));
+
+app.delete('/api/me/telegram', need(), wrap(async (req, res) => {
+  await run('UPDATE users SET tg_chat_id = NULL WHERE id = ?', [req.user.id]);
+  res.json({ ok: true });
 }));
 
 // ---------- buxgalterlar katalogi ----------
@@ -232,6 +253,7 @@ app.post('/api/orders', need('client'), wrap(async (req, res) => {
     'INSERT INTO orders (client_id, category, title, description, budget, city, business_type) VALUES (?, ?, ?, ?, ?, ?, ?)',
     [req.user.id, catKeys.has(req.body.category) ? req.body.category : 'boshqa', title, str(req.body.description, 3000),
       int(req.body.budget), str(req.body.city, 60), BUSINESS_TYPES.includes(req.body.business_type) ? req.body.business_type : '']);
+  fire(onNewOrder(last_row_id));
   res.json({ id: last_row_id });
 }));
 
@@ -279,6 +301,7 @@ app.post('/api/orders/:id/offers', need('accountant'), wrap(async (req, res) => 
     if (/UNIQUE/i.test(e.message)) fail(409, 'Bu zakazga allaqachon taklif yuborgansiz');
     throw e;
   }
+  fire(onNewOffer(o.id, req.user.id, price));
   res.json({ ok: true });
 }));
 
@@ -295,12 +318,14 @@ app.post('/api/orders/:id/accept', need('client'), wrap(async (req, res) => {
   if (!f) fail(404, 'Taklif topilmadi');
   await run("UPDATE orders SET status = 'assigned', accountant_id = ? WHERE id = ?", [f.accountant_id, o.id]);
   await run("UPDATE offers SET status = CASE WHEN id = ? THEN 'accepted' ELSE 'rejected' END WHERE order_id = ?", [f.id, o.id]);
+  fire(onAccepted(o.id));
   res.json({ ok: true });
 }));
 
 app.post('/api/orders/:id/done', need('client'), wrap(async (req, res) => {
   const o = await ownOrder(req, 'assigned');
   await run("UPDATE orders SET status = 'done' WHERE id = ?", [o.id]);
+  fire(onDone(o.id));
   res.json({ ok: true });
 }));
 
@@ -323,6 +348,7 @@ app.post('/api/orders/:id/review', need('client'), wrap(async (req, res) => {
     throw e;
   }
   await run('UPDATE accountants SET rating_sum = rating_sum + ?, rating_count = rating_count + 1 WHERE user_id = ?', [rating, o.accountant_id]);
+  fire(onReview(o.id, rating, str(req.body.text, 1500)));
   res.json({ ok: true });
 }));
 
@@ -344,8 +370,9 @@ app.post('/api/payments', need('accountant'), upload.single('receipt'), wrap(asy
   if (!req.file) fail(400, 'To\'lov cheki rasmini yuklang (PNG/JPG/PDF, 5MB gacha)');
   const pending = await one("SELECT id FROM payments WHERE accountant_id = ? AND status = 'pending'", [req.user.id]);
   if (pending) { fs.rmSync(req.file.path, { force: true }); fail(409, 'Oldingi to\'lovingiz hali tekshirilmoqda'); }
-  await run('INSERT INTO payments (accountant_id, plan, amount, receipt_file, note) VALUES (?, ?, ?, ?, ?)',
+  const { last_row_id } = await run('INSERT INTO payments (accountant_id, plan, amount, receipt_file, note) VALUES (?, ?, ?, ?, ?)',
     [req.user.id, plan, PLANS[plan].price, req.file.filename, str(req.body.note, 300)]);
+  fire(onPayment(last_row_id));
   res.json({ ok: true });
 }));
 
@@ -381,16 +408,9 @@ app.get('/api/admin/payments/:id/receipt', need('admin'), wrap(async (req, res) 
 }));
 
 app.post('/api/admin/payments/:id/:action(approve|reject)', need('admin'), wrap(async (req, res) => {
-  const p = await one("SELECT * FROM payments WHERE id = ? AND status = 'pending'", [int(req.params.id)]);
-  if (!p) fail(404, 'To\'lov topilmadi yoki allaqachon ko\'rilgan');
-  const t = now();
-  if (req.params.action === 'approve') {
-    const acc = await getAcc(p.accountant_id);
-    // Faol tarif bo'lsa ustiga 30 kun qo'shiladi
-    const base = effectivePlan(acc, t) === 'pro' || effectivePlan(acc, t) === 'vip' ? acc.plan_until : t;
-    await run('UPDATE accountants SET plan = ?, plan_until = ? WHERE user_id = ?', [p.plan, base + PLAN_DAYS * DAY, p.accountant_id]);
-  }
-  await run('UPDATE payments SET status = ?, reviewed_at = ? WHERE id = ?', [req.params.action === 'approve' ? 'approved' : 'rejected', t, p.id]);
+  const r = await reviewPayment(int(req.params.id), req.params.action);
+  if (!r) fail(404, 'To\'lov topilmadi yoki allaqachon ko\'rilgan');
+  fire(onPaymentReviewed(r));
   res.json({ ok: true });
 }));
 
@@ -427,3 +447,4 @@ async function seedAdmin() {
 
 seedAdmin().catch((e) => console.error('Admin seed xatosi:', e.message));
 app.listen(PORT, () => console.log(`Hisobchi-bro API :${PORT} da ishlayapti`));
+startBot();

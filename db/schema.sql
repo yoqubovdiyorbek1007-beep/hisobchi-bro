@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   phone TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  tg_chat_id INTEGER,                         -- Telegram bot ulangan chat
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
@@ -33,7 +34,9 @@ CREATE TABLE IF NOT EXISTS accountants (
   plan_until INTEGER NOT NULL DEFAULT 0,
   trial_until INTEGER NOT NULL DEFAULT 0,
   rating_sum INTEGER NOT NULL DEFAULT 0,
-  rating_count INTEGER NOT NULL DEFAULT 0
+  rating_count INTEGER NOT NULL DEFAULT 0,
+  reminded_for INTEGER NOT NULL DEFAULT 0,
+  expired_for INTEGER NOT NULL DEFAULT 0
 );
 
 -- Buxgalter e'lonlari (xizmat kartochkalari)
@@ -99,6 +102,19 @@ CREATE TABLE IF NOT EXISTS payments (
   reviewed_at INTEGER
 );
 
+-- Telegram bot: saytdagi hisobni botga ulash uchun bir martalik kodlar
+CREATE TABLE IF NOT EXISTS tg_links (
+  code TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  expires_at INTEGER NOT NULL
+);
+
+-- Mavjud bazaga migratsiya (2026-11-26, allaqachon qo'llangan): Telegram bot
+-- ALTER TABLE users ADD COLUMN tg_chat_id INTEGER;
+-- ALTER TABLE accountants ADD COLUMN reminded_for INTEGER NOT NULL DEFAULT 0;  -- qaysi muddat tugashi haqida eslatildi
+-- ALTER TABLE accountants ADD COLUMN expired_for INTEGER NOT NULL DEFAULT 0;   -- qaysi muddat tugagani haqida xabar berildi
+
+CREATE INDEX IF NOT EXISTS idx_users_tg ON users(tg_chat_id);
 CREATE INDEX IF NOT EXISTS idx_listings_acc ON listings(accountant_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_offers_order ON offers(order_id);

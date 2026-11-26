@@ -17,12 +17,12 @@ export const PLANS = {
   pro: {
     title: 'Pro', price: 70000,
     listings: 5, contacts: true, offers: true, reputation: true, top: false,
-    perks: ['5 ta e\'lon', 'Kontaktlar ochiq', 'Zakazlarga taklif yuborish', 'Reyting va sharhlar ko\'rinadi'],
+    perks: ['5 ta e\'lon', 'Kontaktlar ochiq', 'Zakazlarga taklif yuborish', 'Reyting va sharhlar ko\'rinadi', 'Yangi zakazlar Telegramga keladi'],
   },
   vip: {
     title: 'VIP', price: 100000,
     listings: 999, contacts: true, offers: true, reputation: true, top: true,
-    perks: ['Cheksiz e\'lon', 'Qidiruvda TOP o\'rin', 'Takliflaringiz birinchi ko\'rinadi', 'VIP belgisi', 'Pro ning barcha imkoniyatlari'],
+    perks: ['Cheksiz e\'lon', 'Qidiruvda TOP o\'rin', 'Takliflaringiz birinchi ko\'rinadi', 'Yangi zakazlar Telegramga 10 daqiqa oldin keladi', 'VIP belgisi', 'Pro ning barcha imkoniyatlari'],
   },
 };
 
